@@ -1,0 +1,10 @@
+.venv/
+.venv-1/
+__pycache__/
+*.pyc
+.env
+models/
+faiss_index/
+data/
+.DS_Store
+.streamlit/

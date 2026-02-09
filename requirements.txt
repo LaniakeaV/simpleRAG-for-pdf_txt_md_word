@@ -1,0 +1,10 @@
+langchain>=0.3.0
+langchain-openai
+langchain-community
+langchain-huggingface
+sentence-transformers
+faiss-cpu
+pypdf
+docx2txt
+streamlit
+python-dotenv
