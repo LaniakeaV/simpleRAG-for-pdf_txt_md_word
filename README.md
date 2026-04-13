@@ -48,3 +48,11 @@ pip install -r requirements.txt
    - `chunk_size=600`: 保证每个片段包含足够的信息量（约 600 字符）。
    - `chunk_overlap=150`: 相邻块之间保留 150 字的重叠，像“胶水”一样保证语义不被从中间切断，减少 AI 的理解误差。
 3. **多样性检索**：检索阶段使用 **MMR (Maximal Marginal Relevance)** 算法，能有效避免 AI 只读到重复段落，确保答案覆盖多份文档的观点。
+
+## 🖼️ 效果预览
+
+### 界面配置与索引建立
+![界面配置与索引建立](effect/scshot20260413140229.png)
+
+### 知识库对话问答
+![知识库对话问答](effect/scshot20260413140441.png)
