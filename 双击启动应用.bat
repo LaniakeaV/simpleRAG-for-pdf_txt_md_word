@@ -15,7 +15,11 @@ if exist ".venv-1\Scripts\python.exe" (
 ) else if exist "venv\Scripts\python.exe" (
     set PY_PATH=venv\Scripts\python.exe
 ) else (
-    echo [错误] 未找到虚拟环境！请先运行 pip install -r requirements.txt。
+    echo [错误] 未找到虚拟环境！
+    echo 请先在当前目录执行以下命令：
+    echo   python -m venv .venv-1
+    echo   .venv-1\Scripts\activate
+    echo   pip install -r requirements.txt
     pause
     exit /b
 )

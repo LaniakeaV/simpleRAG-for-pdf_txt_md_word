@@ -12,8 +12,9 @@
 
 ## ✨ 功能特点
 - **多格式支持**：兼容 `.pdf`, `.docx`, `.txt`, `.md`。
-- **自选目录**：支持在界面上动态指定任意本本地文件夹。
+- **自选目录**：支持在界面上动态指定任意本地文件夹。
 - **本地向量化**：使用 `sentence-transformers` 进行本地嵌入，保护隐私。
+- **索引缓存**：FAISS 索引会保存到本地 `faiss_index/`，相同资料可快速复用。
 - **多样性检索**：采用 MMR (Maximal Marginal Relevance) 算法，确保回答引用自多份不同文档。
 - **出处溯源**：AI 回答会明确标注信息来源于哪个文件。
 
@@ -32,6 +33,14 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+Windows 双击启动脚本也支持 `.venv-1` 或 `venv` 两种虚拟环境目录。如果使用推荐脚本环境，可执行：
+
+```bash
+python -m venv .venv-1
+.venv-1\Scripts\activate
+pip install -r requirements.txt
+```
+
 ### 3. 运行应用
 - **Windows (推荐)**: 资源管理器中直接双击 `双击启动应用.bat` 文件。
 - **命令行模式**:
@@ -40,14 +49,14 @@ pip install -r requirements.txt
   ```
 
 ## 📖 使用指南
-1. **API Key**: 启动后在侧边栏填入兼容 OpenAI 接口的 API Key。
-2. **文件夹路径**: 在侧边栏输入你想分析的本地文件夹绝对路径（默认会自动扫描项目下的 `data` 目录）。
-3. **建立索引**: 点击“开始分析”，系统会自动处理文档并建立本地向量索引。
+1. **接口配置**: 启动后在侧边栏填入兼容 OpenAI 接口的 API Key、API 地址和模型名称。
+2. **文件夹路径**: 在侧边栏输入或选择你想分析的本地文件夹绝对路径（默认会自动扫描项目下的 `data` 目录）。
+3. **建立索引**: 点击“开始分析”，系统会自动处理文档并建立本地向量索引；默认优先复用 `faiss_index/` 下的缓存。建立索引只使用本地 Embedding，不需要 API Key。
 4. **对话提问**: 在右侧聊天框开始提问！
 
 ## 📄 注意事项
 - 首次运行需要自动下载 Embedding 模型（约 80MB）。
-- 服务器地址已预设为：`https://api.xiaomimimo.com/v1`。
+- 本项目不预设默认 API 地址和模型名称，请根据你的服务商配置兼容 OpenAI 的接口地址与模型。
 
 ## 🧩 核心算法：分块 (Chunking) 逻辑
 本项目采用了 **RecursiveCharacterTextSplitter (递归字符切分器)**，这是目前最推荐的通用分块方案。其逻辑如下：

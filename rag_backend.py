@@ -1,4 +1,5 @@
 import os
+import hashlib
 from langchain_community.document_loaders import (
     PyPDFLoader, 
     DirectoryLoader, 
@@ -26,33 +27,93 @@ class RAGSystem:
         
         self.vector_store = None
         self.retriever = None
+
+    @staticmethod
+    def supported_extensions():
+        return (".pdf", ".txt", ".docx", ".md")
+
+    def _get_supported_files(self, folder_path):
+        """返回目录下支持的文件路径列表。"""
+        supported_files = []
+        for root, _, files in os.walk(folder_path):
+            for file_name in files:
+                if file_name.lower().endswith(self.supported_extensions()):
+                    supported_files.append(os.path.join(root, file_name))
+        return sorted(supported_files)
+
+    def _build_index_fingerprint(self, folder_path, files):
+        """根据目录路径、文件路径、大小和修改时间生成索引缓存指纹。"""
+        hasher = hashlib.sha256()
+        hasher.update(os.path.abspath(folder_path).encode("utf-8", errors="ignore"))
+        for file_path in files:
+            try:
+                stat = os.stat(file_path)
+            except OSError:
+                continue
+            relative_path = os.path.relpath(file_path, folder_path)
+            hasher.update(relative_path.encode("utf-8", errors="ignore"))
+            hasher.update(str(stat.st_size).encode("utf-8"))
+            hasher.update(str(stat.st_mtime_ns).encode("utf-8"))
+        return hasher.hexdigest()[:16]
+
+    def _get_index_dir(self, folder_path, files):
+        fingerprint = self._build_index_fingerprint(folder_path, files)
+        return os.path.join(os.path.dirname(__file__), "faiss_index", fingerprint)
+
+    def _set_retriever(self):
+        """基于当前向量库创建 MMR 检索器。"""
+        self.retriever = self.vector_store.as_retriever(
+            search_type="mmr",
+            search_kwargs={"k": 10, "fetch_k": 30, "lambda_mult": 0.5}
+        )
         
-    def ingest_documents(self, folder_path):
+    def ingest_documents(self, folder_path, use_cache=True, force_rebuild=False):
         """加载指定目录下的多种格式文件并创建向量库"""
         if not os.path.exists(folder_path):
             return f"错误：目录 {folder_path} 不存在"
 
         print(f"正在从 {folder_path} 加载文档...")
+
+        supported_files = self._get_supported_files(folder_path)
+        if not supported_files:
+            return "未在指定目录下找到支持的文档 (.pdf, .docx, .txt, .md)"
+
+        index_dir = self._get_index_dir(folder_path, supported_files)
+        if use_cache and not force_rebuild and os.path.exists(os.path.join(index_dir, "index.faiss")):
+            self.vector_store = FAISS.load_local(
+                index_dir,
+                self.embeddings,
+                allow_dangerous_deserialization=True
+            )
+            self._set_retriever()
+            return f"已从本地缓存加载索引，共匹配 {len(supported_files)} 个源文件。"
         
-        # 支持多种格式
+        # 支持多种格式。文本类文件优先按 UTF-8 读取，减少 Windows 中文环境乱码概率。
         loaders = {
-            ".pdf": PyPDFLoader,
-            ".txt": TextLoader,
-            ".docx": Docx2txtLoader,
-            ".md": TextLoader
+            ".pdf": (PyPDFLoader, {}),
+            ".txt": (TextLoader, {"encoding": "utf-8", "autodetect_encoding": True}),
+            ".docx": (Docx2txtLoader, {}),
+            ".md": (TextLoader, {"encoding": "utf-8", "autodetect_encoding": True})
         }
 
         docs = []
-        for ext, loader_cls in loaders.items():
+        source_files = set()
+        for ext, (loader_cls, loader_kwargs) in loaders.items():
             loader = DirectoryLoader(
                 folder_path, 
                 glob=f"**/*{ext}", 
                 loader_cls=loader_cls,
+                loader_kwargs=loader_kwargs,
                 silent_errors=True
             )
             try:
                 loaded_docs = loader.load()
                 docs.extend(loaded_docs)
+                source_files.update(
+                    doc.metadata.get('source')
+                    for doc in loaded_docs
+                    if doc.metadata.get('source')
+                )
             except Exception as e:
                 print(f"加载 {ext} 文件时出错: {e}")
         
@@ -61,6 +122,8 @@ class RAGSystem:
 
         # 过滤过短内容
         docs = [d for d in docs if len(d.page_content.strip()) > 50]
+        if not docs:
+            return "找到的文档内容过短或为空，无法建立索引。"
 
         # 注入元数据
         for doc in docs:
@@ -72,24 +135,31 @@ class RAGSystem:
         
         print(f"正在创建向量库，包含 {len(splits)} 个分块...")
         self.vector_store = FAISS.from_documents(splits, self.embeddings)
+        os.makedirs(index_dir, exist_ok=True)
+        self.vector_store.save_local(index_dir)
         
         # MMR 检索
-        self.retriever = self.vector_store.as_retriever(
-            search_type="mmr",
-            search_kwargs={"k": 10, "fetch_k": 30, "lambda_mult": 0.5}
-        )
-        return f"成功索引了 {len(docs)} 个文件，生成了 {len(splits)} 个知识点。"
+        self._set_retriever()
+        return f"成功索引了 {len(source_files)} 个文件，加载了 {len(docs)} 个文档片段，生成了 {len(splits)} 个知识点。"
 
-    def get_response(self, query, api_key, model_name="mimo-v2-flash", api_base="https://api.xiaomimimo.com/v1"):
+    def get_response(self, query, api_key, model_name, api_base, timeout=60, max_retries=2):
         """获取 RAG 回答"""
         if not self.retriever:
             return "请先加载文档。"
+        if not api_key:
+            return "请先配置 API Key。"
+        if not api_base:
+            return "请先配置 API 地址。"
+        if not model_name:
+            return "请先配置模型名称。"
             
         llm = ChatOpenAI(
             model=model_name,
             openai_api_key=api_key,
             openai_api_base=api_base,
-            temperature=0.3
+            temperature=0.3,
+            timeout=timeout,
+            max_retries=max_retries
         )
         
         system_prompt = (
